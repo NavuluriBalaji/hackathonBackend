@@ -71,6 +71,13 @@ def forecast_phc_stockout(phc_id: str, medicine_id: str, db: Session, forecast_d
                 initialization_method="estimated"
             ).fit()
             
+            # Save fitted model to pickle file (.pkl)
+            try:
+                from app.core.model_persistence import save_model
+                save_model(hw_model, f"holt_winters_{phc_id}_{medicine_id}.pkl")
+            except Exception:
+                pass
+
             # Predict future daily consumption values
             hw_predictions = hw_model.forecast(forecast_days)
             predicted_daily_velocity = float(max(5.0, np.mean(hw_predictions[:3])))

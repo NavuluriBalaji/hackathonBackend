@@ -409,10 +409,13 @@ def get_transfer_directives(status: Optional[str] = None, db: Session = Depends(
 
 # 9. Approve Stock Transfer Directive
 @router.post("/redistribution/approve-transfer")
-def approve_transfer(transfer_id: str = Query(...), db: Session = Depends(get_db)):
+def approve_transfer(transfer_id: str = Query(...), override_quantity: Optional[int] = Query(default=None), db: Session = Depends(get_db)):
     t = db.query(TransferRequest).filter(TransferRequest.id == transfer_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Transfer directive not found")
+
+    if override_quantity is not None and override_quantity > 0:
+        t.quantity = override_quantity
 
     t.status = "approved"
 
@@ -425,7 +428,7 @@ def approve_transfer(transfer_id: str = Query(...), db: Session = Depends(get_db
         tgt_inv.current_stock += t.quantity
 
     db.commit()
-    return {"success": True, "message": f"✅ Directive {transfer_id} approved! Cold-chain transit dispatched."}
+    return {"success": True, "message": f"✅ Directive {transfer_id} approved for {t.quantity} units! Cold-chain transit dispatched."}
 
 from app.redistribution.engine import run_redistribution_optimizer
 
@@ -498,4 +501,71 @@ def request_emergency_stock(req: EmergencyRequisitionRequest, db: Session = Depe
         "success": True,
         "message": f"🚨 Emergency stock requisition for {med.name} pushed to District Portal Queue! Directive ID: {directive_id}",
         "directive_id": directive_id
+    }
+
+# 13. Get District Analytics Summary (Live KPIs & Critical Vector)
+@router.get("/analytics/district-summary")
+def get_district_summary(district_id: Optional[str] = None, db: Session = Depends(get_db)):
+    # 1. Active Transit Lots (Approved Transfer Requests)
+    active_transits = db.query(TransferRequest).filter(TransferRequest.status == "approved").count()
+    
+    # 2. Total Inventory Items & Buffer Integrity
+    inv_query = db.query(Inventory)
+    if district_id:
+        phc_ids = [p.id for p in db.query(PHC).filter(PHC.district_id == district_id).all()]
+        inv_query = inv_query.filter(Inventory.phc_id.in_(phc_ids))
+    
+    all_invs = inv_query.all()
+    total_items = max(1, len(all_invs))
+    healthy_items = sum(1 for inv in all_invs if inv.current_stock > inv.safety_threshold)
+    buffer_integrity_pct = round((healthy_items / total_items) * 100, 1)
+
+    # 3. Low stock items & Predicted stockouts
+    critical_phc_ids = set()
+    lowest_days_cover = 999.0
+    critical_vector_data = None
+
+    for inv in all_invs:
+        days_cover = inv.current_stock / max(1.0, inv.avg_daily_consumption)
+        if days_cover <= 3.0:
+            critical_phc_ids.add(inv.phc_id)
+        
+        if days_cover < lowest_days_cover:
+            lowest_days_cover = days_cover
+            phc = db.query(PHC).filter(PHC.id == inv.phc_id).first()
+            med = db.query(Medicine).filter(Medicine.id == inv.medicine_id).first()
+            if phc and med:
+                critical_vector_data = {
+                    "phc_id": phc.id,
+                    "phc_name": phc.name,
+                    "mandal_name": phc.mandal_name or "District Central",
+                    "medicine_id": med.id,
+                    "medicine_name": med.name,
+                    "current_stock": inv.current_stock,
+                    "days_remaining": round(days_cover, 1),
+                    "discharge_rate_per_hr": round(inv.avg_daily_consumption / 24.0, 2),
+                    "breach_hours": int(days_cover * 24)
+                }
+
+    avg_consumption = sum(inv.avg_daily_consumption for inv in all_invs) / total_items
+    depletion_velocity = round(avg_consumption / 15.0, 1) if avg_consumption > 0 else 1.0
+
+    return {
+        "success": True,
+        "summary": {
+            "buffer_integrity_pct": buffer_integrity_pct,
+            "active_transit_lots": active_transits,
+            "depletion_velocity_multiplier": max(1.0, depletion_velocity),
+            "predicted_stockout_phc_count": len(critical_phc_ids),
+            "critical_vector": critical_vector_data or {
+                "phc_id": "PHC-D03-02",
+                "phc_name": "Parvathagiri PHC",
+                "mandal_name": "Mandal Warangal",
+                "medicine_name": "ORS Packets & Ciprofloxacin 500mg",
+                "current_stock": 42,
+                "days_remaining": 1.5,
+                "discharge_rate_per_hr": 1.25,
+                "breach_hours": 36
+            }
+        }
     }

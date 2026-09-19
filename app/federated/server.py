@@ -86,10 +86,14 @@ def run_federated_simulation(num_districts: int = 5, num_rounds: int = 3):
         round_metrics.append({"round": r, "average_loss": round(avg_loss, 4)})
         print(f"   • Round {r}/{num_rounds} Complete ➔ FedAvg Global Loss: {avg_loss:.4f}")
 
+    from app.core.model_persistence import save_model
+    pkl_path = save_model(global_model.get_weights(), "federated_global_model.pkl")
+
     print("✅ Sovereign Federated Learning Simulation Complete!")
     print(f"   • Participated District Silos: {num_districts}")
     print(f"   • Completed Aggregation Rounds: {num_rounds}")
     print(f"   • Strategy: FedAvg (Federated Averaging)")
+    print(f"   • Model Pickle Artifact: {pkl_path}")
     print(f"   • Privacy Verification: 0 raw prescription records crossed district boundaries.")
 
     return {
@@ -97,6 +101,7 @@ def run_federated_simulation(num_districts: int = 5, num_rounds: int = 3):
         "num_districts": num_districts,
         "num_rounds": num_rounds,
         "strategy": "FedAvg (Federated Averaging)",
+        "model_pickle_file": "federated_global_model.pkl",
         "privacy_status": "Sovereign — 0 Raw Records Shared",
         "round_metrics": round_metrics
     }
