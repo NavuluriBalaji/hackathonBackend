@@ -103,6 +103,23 @@ class DispensingLog(Base):
     ingestion_mode = Column(String(50), default="camera_scan")
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
+class Driver(Base):
+    __tablename__ = "drivers"
+
+    id = Column(String(50), primary_key=True, index=True) # e.g. DRV-WAR-01
+    name = Column(String(150), nullable=False) # e.g. Ramesh Kumar
+    phone = Column(String(20), nullable=False) # e.g. +91 98765 43210
+    vehicle_type = Column(String(50), default="Cold-Chain Van") # Cold-Chain Van | Express Bike | 108 Emergency
+    vehicle_number = Column(String(50), nullable=False) # e.g. TS-03-E-4012
+    district_id = Column(String(50), ForeignKey("districts.id"), nullable=False)
+    status = Column(String(50), default="available") # available | on_delivery | offline
+    current_lat = Column(Float, nullable=True)
+    current_lon = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    district = relationship("District")
+    transfers = relationship("TransferRequest", back_populates="driver")
+
 class TransferRequest(Base):
     __tablename__ = "transfers"
 
@@ -112,6 +129,14 @@ class TransferRequest(Base):
     medicine_id = Column(String(50), ForeignKey("medicines.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     distance_km = Column(Float, default=15.0)
-    status = Column(String(50), default="proposed")
+    estimated_minutes = Column(Float, default=30.0)
+    status = Column(String(50), default="proposed") # proposed | approved | in_transit | completed | rejected
     reason = Column(Text, nullable=True)
+    driver_id = Column(String(50), ForeignKey("drivers.id"), nullable=True)
+    handover_otp = Column(String(10), nullable=True)
+    pickup_time = Column(DateTime, nullable=True)
+    delivery_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    driver = relationship("Driver", back_populates="transfers")
+

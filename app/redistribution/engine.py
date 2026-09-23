@@ -63,7 +63,7 @@ def run_redistribution_optimizer(db: Session, max_transport_radius_km: float = 4
                     "shortage_qty": shortage_qty,
                     "days_cover": days_cover
                 })
-            elif days_cover >= 14.0 and inv.current_stock > inv.safety_threshold * 2:
+            elif days_cover >= 5.0 and inv.current_stock > inv.safety_threshold:
                 available_surplus = inv.current_stock - inv.safety_threshold
                 surplus_phcs.append({
                     "phc": phc,

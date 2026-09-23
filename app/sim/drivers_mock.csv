@@ -1,0 +1,16 @@
+id,name,phone,vehicle_type,vehicle_number,district_id,status,current_lat,current_lon
+DRV-WAR-001,Ramesh Kumar,+91 98480 89842,Tata Winger Cold Van,TS-03-E-4000,DIS-01,available,17.1234,79.2674
+DRV-WAR-002,Suresh Rao,+91 98480 24621,108 Emergency Ambulance,TS-03-E-4001,DIS-04,available,16.9887,79.2664
+DRV-WAR-003,Venkatesh Reddy,+91 98480 23237,Mobile Medical Unit,TS-03-E-4002,DIS-02,available,17.1781,79.6633
+DRV-WAR-004,Anil Sharma,+91 98480 80901,ANM Ice-Box Bike,TS-03-E-4003,DIS-04,available,17.1074,79.4418
+DRV-WAR-005,Pradeep Teja,+91 98480 98053,ICMR i-DRONE UAV,TS-03-E-4004,DIS-05,available,16.6717,79.2415
+DRV-WAR-006,Mahesh Varma,+91 98480 72180,Tata Winger Cold Van,TS-03-E-4005,DIS-05,available,16.699,79.5672
+DRV-WAR-007,Rajesh Goud,+91 98480 18785,108 Emergency Ambulance,TS-03-E-4006,DIS-05,available,17.0301,79.2628
+DRV-WAR-008,Kiran Naidu,+91 98480 46563,Mobile Medical Unit,TS-03-E-4007,DIS-03,available,16.7954,78.9804
+DRV-WAR-009,Srinivas Chowdary,+91 98480 60154,ANM Ice-Box Bike,TS-03-E-4008,DIS-05,available,17.4064,79.4168
+DRV-WAR-010,Bhanu Yadav,+91 98480 51610,ICMR i-DRONE UAV,TS-03-E-4009,DIS-01,available,16.6765,79.326
+DRV-WAR-011,Praveen Verma,+91 98480 32078,Tata Winger Cold Van,TS-03-E-4010,DIS-02,available,16.9371,78.9867
+DRV-WAR-012,Vijay Prasad,+91 98480 40155,108 Emergency Ambulance,TS-03-E-4011,DIS-05,available,17.0721,79.2116
+DRV-WAR-013,Naresh Nath,+91 98480 19194,Mobile Medical Unit,TS-03-E-4012,DIS-03,available,16.7041,79.3022
+DRV-WAR-014,Sunil Swamy,+91 98480 96450,ANM Ice-Box Bike,TS-03-E-4013,DIS-03,available,16.6938,79.6422
+DRV-WAR-015,Ravi Raju,+91 98480 60543,ICMR i-DRONE UAV,TS-03-E-4014,DIS-02,available,16.8396,79.3277

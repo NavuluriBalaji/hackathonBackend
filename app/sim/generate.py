@@ -12,7 +12,57 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import hashlib
 from app.core.database import Base, engine, SessionLocal
-from app.core.schema import District, PHC, PHCDetail, Medicine, Inventory, DispensingLog, TransferRequest, User
+from app.core.schema import District, PHC, PHCDetail, Medicine, Inventory, DispensingLog, TransferRequest, User, Driver
+
+DEMO_DRIVERS = [
+    {
+        "id": "DRV-DIS-01-01",
+        "name": "Ramesh Kumar",
+        "phone": "+91 98480 12345",
+        "vehicle_type": "Cold-Chain Van",
+        "vehicle_number": "TS-03-E-4012",
+        "district_id": "DIS-01",
+        "status": "available",
+        "current_lat": 17.0520,
+        "current_lon": 79.2680
+    },
+    {
+        "id": "DRV-DIS-01-02",
+        "name": "Suresh Varma",
+        "phone": "+91 98480 67890",
+        "vehicle_type": "108 Express Emergency",
+        "vehicle_number": "TS-03-EX-9911",
+        "district_id": "DIS-01",
+        "status": "available",
+        "current_lat": 17.0480,
+        "current_lon": 79.2610
+    },
+    {
+        "id": "DRV-DIS-02-01",
+        "name": "Md. Imran Khan",
+        "phone": "+91 97000 54321",
+        "vehicle_type": "Cold-Chain Van",
+        "vehicle_number": "TS-04-F-2210",
+        "district_id": "DIS-02",
+        "status": "available",
+        "current_lat": 17.2490,
+        "current_lon": 80.1530
+    },
+    {
+        "id": "DRV-DIS-05-01",
+        "name": "K. Venkatesh",
+        "phone": "+91 99890 11223",
+        "vehicle_type": "Cold-Chain Van",
+        "vehicle_number": "TS-08-C-5050",
+        "district_id": "DIS-05",
+        "status": "available",
+        "current_lat": 17.9710,
+        "current_lon": 79.5960
+    }
+]
+
+# (Continuing in seed_database method...)
+
 
 ESSENTIAL_MEDICINES = [
     {
@@ -141,14 +191,12 @@ def seed_database():
                 avg_daily = float(random.randint(25, 120))
                 safety_threshold = int(avg_daily * 7)
 
-                if phc_id == "PHC-D01-03" and med_id == "MED-PARA-650":
-                    initial_stock = 50
-                    avg_daily = 50.0
-                elif phc_id == "PHC-D01-01" and med_id == "MED-PARA-650":
-                    initial_stock = 4500
-                    avg_daily = 50.0
+                if phc_id.endswith("-03") or phc_id.endswith("-02"):
+                    initial_stock = int(avg_daily * random.uniform(0.5, 2.2)) # 🔴 Shortage PHC (< 3 days cover)
+                elif phc_id.endswith("-01") or phc_id.endswith("-04"):
+                    initial_stock = int(avg_daily * random.uniform(8.0, 16.0)) # 🟢 Surplus Donor PHC (>= 5 days cover)
                 else:
-                    initial_stock = int(avg_daily * random.randint(15, 45))
+                    initial_stock = int(avg_daily * random.randint(4, 10))
 
                 batch_num = f"BAT-2026-X{batch_counter}"
                 batch_counter += 1
@@ -180,7 +228,14 @@ def seed_database():
 
         db.commit()
 
-        # 4. Sample Transfer Request
+        # 4. Seed Cold-Chain Drivers
+        print("🚚 Seeding Cold-Chain Drivers & Transport Fleet...")
+        for driver_data in DEMO_DRIVERS:
+            drv = Driver(**driver_data)
+            db.add(drv)
+        db.commit()
+
+        # 5. Sample Transfer Request
         sample_tr = TransferRequest(
             id="TR-2026-001",
             source_phc_id="PHC-D01-01",
@@ -188,6 +243,7 @@ def seed_database():
             medicine_id="MED-PARA-650",
             quantity=800,
             distance_km=18.5,
+            estimated_minutes=25.0,
             status="proposed",
             reason="Automated Redistribution: PHC-D01-03 Paracetamol risk forecast critical (< 2 days)."
         )

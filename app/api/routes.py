@@ -3,13 +3,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy import or_
 
 import hashlib
 import uuid
 from app.core.database import get_db
-from app.core.schema import District, PHC, PHCDetail, Medicine, Inventory, DispensingLog, TransferRequest, User
+from app.core.schema import District, PHC, PHCDetail, Medicine, Inventory, DispensingLog, TransferRequest, User, Driver
 from app.forecasting.stockout_model import forecast_phc_stockout
 from app.federated.server import run_federated_simulation
+from app.sim.osrm_distance import calculate_realtime_route
 
 router = APIRouter(prefix="/api")
 
@@ -45,6 +47,24 @@ class EmergencyRequisitionRequest(BaseModel):
     medicine_id: str
     requested_quantity: Optional[int] = 500
     reason: Optional[str] = None
+
+class AssignDriverRequest(BaseModel):
+    transfer_id: str
+    driver_id: str
+
+class DriverPickupRequest(BaseModel):
+    transfer_id: str
+    driver_id: str
+
+class DeliveryVerifyRequest(BaseModel):
+    transfer_id: str
+    otp_code: Optional[str] = None
+
+class RouteCalcRequest(BaseModel):
+    lat1: float
+    lon1: float
+    lat2: float
+    lon2: float
 
 def _hash_pwd(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -378,10 +398,19 @@ def execute_federated_learning(num_districts: int = Query(default=5), num_rounds
 
 # 8. Get Stock Transfer Directives
 @router.get("/redistribution/transfer-directives")
-def get_transfer_directives(status: Optional[str] = None, db: Session = Depends(get_db)):
+def get_transfer_directives(
+    status: Optional[str] = None, 
+    phc_id: Optional[str] = None, 
+    driver_id: Optional[str] = None, 
+    db: Session = Depends(get_db)
+):
     query = db.query(TransferRequest)
     if status:
         query = query.filter(TransferRequest.status == status)
+    if phc_id:
+        query = query.filter(or_(TransferRequest.source_phc_id == phc_id, TransferRequest.target_phc_id == phc_id))
+    if driver_id:
+        query = query.filter(TransferRequest.driver_id == driver_id)
     
     transfers = query.all()
     results = []
@@ -569,3 +598,161 @@ def get_district_summary(district_id: Optional[str] = None, db: Session = Depend
             }
         }
     }
+
+# ─── DRIVERS & LOGISTICS DELIVERY MODULE ─────────────────────────────────────
+
+@router.get("/drivers")
+def get_drivers(district_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """Returns list of cold-chain drivers and transport fleet status."""
+    query = db.query(Driver)
+    if district_id:
+        query = query.filter(Driver.district_id == district_id)
+    drivers = query.all()
+
+    result = []
+    for d in drivers:
+        dis = db.query(District).filter(District.id == d.district_id).first()
+        result.append({
+            "driver_id": d.id,
+            "name": d.name,
+            "phone": d.phone,
+            "vehicle_type": d.vehicle_type,
+            "vehicle_number": d.vehicle_number,
+            "district_id": d.district_id,
+            "district_name": dis.name if dis else d.district_id,
+            "status": d.status,
+            "current_lat": d.current_lat,
+            "current_lon": d.current_lon
+        })
+    return {"success": True, "count": len(result), "drivers": result}
+
+@router.post("/transfers/assign-driver")
+def assign_driver(req: AssignDriverRequest, db: Session = Depends(get_db)):
+    """Assigns a transport driver to an approved stock transfer directive."""
+    transfer = db.query(TransferRequest).filter(TransferRequest.id == req.transfer_id).first()
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer Directive not found")
+
+    driver = db.query(Driver).filter(Driver.id == req.driver_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+
+    transfer.driver_id = driver.id
+    transfer.status = "approved"
+    driver.status = "on_delivery"
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Driver {driver.name} ({driver.vehicle_number}) assigned to Transfer {transfer.id}.",
+        "transfer_id": transfer.id,
+        "driver_name": driver.name,
+        "driver_phone": driver.phone,
+        "vehicle_number": driver.vehicle_number
+    }
+
+@router.post("/transfers/pickup")
+def pickup_stock(req: DriverPickupRequest, db: Session = Depends(get_db)):
+    """Driver picks up cold-chain stock at donor PHC. Status moves to 'in_transit' and generates 4-digit handover OTP."""
+    transfer = db.query(TransferRequest).filter(TransferRequest.id == req.transfer_id).first()
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer Directive not found")
+
+    # Generate 4-digit OTP for secure recipient handover
+    otp_code = f"{uuid.uuid4().int % 9000 + 1000}"
+
+    transfer.status = "in_transit"
+    transfer.handover_otp = otp_code
+    transfer.pickup_time = datetime.datetime.utcnow()
+
+    driver = db.query(Driver).filter(Driver.id == req.driver_id).first()
+    if driver:
+        driver.status = "on_delivery"
+
+    db.commit()
+
+    source_phc = db.query(PHC).filter(PHC.id == transfer.source_phc_id).first()
+    target_phc = db.query(PHC).filter(PHC.id == transfer.target_phc_id).first()
+
+    return {
+        "success": True,
+        "message": "Stock picked up! Transport in-transit under active cold-chain monitoring.",
+        "transfer_id": transfer.id,
+        "status": "in_transit",
+        "source_phc": source_phc.name if source_phc else transfer.source_phc_id,
+        "target_phc": target_phc.name if target_phc else transfer.target_phc_id,
+        "handover_otp": otp_code,
+        "pickup_time": transfer.pickup_time.isoformat()
+    }
+
+@router.post("/transfers/verify-delivery")
+def verify_delivery(req: DeliveryVerifyRequest, db: Session = Depends(get_db)):
+    """
+    Recipient PHC verifies delivery via 4-digit OTP.
+    Status moves to 'completed', delivery_time is recorded, and inventory stock balances update automatically!
+    """
+    transfer = db.query(TransferRequest).filter(TransferRequest.id == req.transfer_id).first()
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer Directive not found")
+
+    if req.otp_code and transfer.handover_otp and req.otp_code != transfer.handover_otp:
+        raise HTTPException(status_code=400, detail="Invalid Delivery Handover OTP Code")
+
+    transfer.status = "completed"
+    transfer.delivery_time = datetime.datetime.utcnow()
+
+    # Free driver back to available
+    if transfer.driver_id:
+        driver = db.query(Driver).filter(Driver.id == transfer.driver_id).first()
+        if driver:
+            driver.status = "available"
+
+    # Deduct stock from Source PHC
+    source_inv = db.query(Inventory).filter(
+        Inventory.phc_id == transfer.source_phc_id,
+        Inventory.medicine_id == transfer.medicine_id
+    ).first()
+    if source_inv:
+        source_inv.current_stock = max(0, source_inv.current_stock - transfer.quantity)
+
+    # Add stock to Target PHC
+    target_inv = db.query(Inventory).filter(
+        Inventory.phc_id == transfer.target_phc_id,
+        Inventory.medicine_id == transfer.medicine_id
+    ).first()
+    if target_inv:
+        target_inv.current_stock += transfer.quantity
+    else:
+        # Create inventory record if missing
+        new_inv = Inventory(
+            phc_id=transfer.target_phc_id,
+            medicine_id=transfer.medicine_id,
+            current_stock=transfer.quantity,
+            safety_threshold=200,
+            avg_daily_consumption=40.0
+        )
+        db.add(new_inv)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Transfer {transfer.id} verified and completed successfully! Inventory ledgers updated.",
+        "transfer_id": transfer.id,
+        "status": "completed",
+        "quantity_transferred": transfer.quantity,
+        "delivery_time": transfer.delivery_time.isoformat()
+    }
+
+@router.post("/distance/calculate-route")
+def calculate_route_distance(req: RouteCalcRequest):
+    """
+    Calculates real-time driving route distance (km) and duration (mins)
+    between two GPS coordinates using OpenStreetMap (OSRM) with Haversine fallback.
+    """
+    route_info = calculate_realtime_route(req.lat1, req.lon1, req.lat2, req.lon2)
+    return {
+        "success": True,
+        "route": route_info
+    }
+

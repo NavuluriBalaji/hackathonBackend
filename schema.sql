@@ -76,7 +76,22 @@ CREATE TABLE IF NOT EXISTS dispensing_logs (
     FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 7. Stock Transfer & Redistribution Requests Table
+-- 7. Drivers & Transport Logistics Table
+CREATE TABLE IF NOT EXISTS drivers (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    vehicle_type VARCHAR(50) DEFAULT 'Cold-Chain Van', -- Cold-Chain Van | Express Bike | 108 Emergency
+    vehicle_number VARCHAR(50) NOT NULL,
+    district_id VARCHAR(50) NOT NULL,
+    status VARCHAR(50) DEFAULT 'available', -- available | on_delivery | offline
+    current_lat DOUBLE,
+    current_lon DOUBLE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (district_id) REFERENCES districts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 8. Stock Transfer & Redistribution Requests Table
 CREATE TABLE IF NOT EXISTS transfers (
     id VARCHAR(50) PRIMARY KEY,
     source_phc_id VARCHAR(50) NOT NULL,
@@ -84,10 +99,17 @@ CREATE TABLE IF NOT EXISTS transfers (
     medicine_id VARCHAR(50) NOT NULL,
     quantity INT NOT NULL,
     distance_km DOUBLE DEFAULT 15.0,
+    estimated_minutes DOUBLE DEFAULT 30.0,
     status VARCHAR(50) DEFAULT 'proposed', -- proposed | approved | in_transit | completed | rejected
     reason TEXT,
+    driver_id VARCHAR(50),
+    handover_otp VARCHAR(10),
+    pickup_time DATETIME,
+    delivery_time DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_phc_id) REFERENCES phcs(id) ON DELETE CASCADE,
     FOREIGN KEY (target_phc_id) REFERENCES phcs(id) ON DELETE CASCADE,
-    FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE
+    FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE,
+    FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
