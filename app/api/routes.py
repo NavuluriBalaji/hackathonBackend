@@ -26,6 +26,7 @@ class SignUpRequest(BaseModel):
 class LoginRequest(BaseModel):
     username_or_email: str
     password: str
+    role: Optional[str] = None
 
 class DispenseRequest(BaseModel):
     medicine_id: str
@@ -99,6 +100,14 @@ def signup(req: SignUpRequest, db: Session = Depends(get_db)):
         matched_phc_id = phc.id
         matched_phc_name = phc.name
 
+    raw_role = (req.role or "").lower()
+    if "driver" in raw_role or "fleet" in raw_role:
+        norm_role = "driver"
+    elif "admin" in raw_role or "district" in raw_role or "dmo" in raw_role:
+        norm_role = "district_admin"
+    else:
+        norm_role = "phc_staff"
+
     user_id = f"USR-{uuid.uuid4().hex[:8].upper()}"
     new_user = User(
         id=user_id,
@@ -106,7 +115,7 @@ def signup(req: SignUpRequest, db: Session = Depends(get_db)):
         email=req.email,
         password_hash=_hash_pwd(req.password),
         full_name=req.full_name,
-        role=req.role or "phc_staff",
+        role=norm_role,
         phc_id=matched_phc_id,
         status="active",
         last_login=datetime.datetime.utcnow(),
@@ -141,6 +150,27 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
     if not user or user.password_hash != pwd_hash:
         raise HTTPException(status_code=401, detail="Invalid username/email or password.")
+
+    # Validate role matching if role was selected during login
+    if req.role:
+        req_role_lower = req.role.lower()
+        user_role_lower = (user.role or "").lower()
+
+        is_req_dmo = "dmo" in req_role_lower or "district" in req_role_lower or "admin" in req_role_lower
+        is_user_dmo = "dmo" in user_role_lower or "district" in user_role_lower or "admin" in user_role_lower
+
+        is_req_driver = "driver" in req_role_lower or "fleet" in req_role_lower
+        is_user_driver = "driver" in user_role_lower or "fleet" in user_role_lower
+
+        is_req_phc = "phc" in req_role_lower or "staff" in req_role_lower or "manager" in req_role_lower
+        is_user_phc = "phc" in user_role_lower or "staff" in user_role_lower or "manager" in user_role_lower
+
+        if (is_req_dmo and not is_user_dmo) or (is_req_driver and not is_user_driver) or (is_req_phc and not is_user_phc):
+            actual_role_name = "District Officer (DMO)" if is_user_dmo else ("Fleet Driver" if is_user_driver else "PHC Staff")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role Mismatch: Your credentials belong to a '{actual_role_name}', not the selected role."
+            )
 
     # Update active status and last_login
     user.status = "active"
@@ -401,7 +431,8 @@ def execute_federated_learning(num_districts: int = Query(default=5), num_rounds
 def get_transfer_directives(
     status: Optional[str] = None, 
     phc_id: Optional[str] = None, 
-    driver_id: Optional[str] = None, 
+    driver_id: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     query = db.query(TransferRequest)
@@ -414,18 +445,36 @@ def get_transfer_directives(
     
     transfers = query.all()
     results = []
+    s_query = search.lower() if search else None
+
     for t in transfers:
         src = db.query(PHC).filter(PHC.id == t.source_phc_id).first()
         tgt = db.query(PHC).filter(PHC.id == t.target_phc_id).first()
         med = db.query(Medicine).filter(Medicine.id == t.medicine_id).first()
+
+        src_name = src.name if src else ""
+        tgt_name = tgt.name if tgt else ""
+        med_name = med.name if med else ""
+
+        if s_query:
+            t_id = t.id.lower()
+            s_name = src_name.lower()
+            tg_name = tgt_name.lower()
+            m_name = med_name.lower()
+            st_name = (t.status or "").lower()
+            rs_name = (t.reason or "").lower()
+
+            if not (s_query in t_id or s_query in s_name or s_query in tg_name or s_query in m_name or s_query in st_name or s_query in rs_name):
+                continue
+
         results.append({
             "id": t.id,
             "source_phc_id": t.source_phc_id,
-            "source_phc_name": src.name if src else "",
+            "source_phc_name": src_name,
             "target_phc_id": t.target_phc_id,
-            "target_phc_name": tgt.name if tgt else "",
+            "target_phc_name": tgt_name,
             "medicine_id": t.medicine_id,
-            "medicine_name": med.name if med else "",
+            "medicine_name": med_name,
             "quantity": t.quantity,
             "distance_km": t.distance_km,
             "status": t.status,
