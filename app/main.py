@@ -6,11 +6,24 @@ from fastapi.middleware.cors import CORSMiddleware
 # Ensure app module can be imported cleanly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import engine, Base
+from app.core.database import engine, Base, SessionLocal
+from app.core.schema import User
 from app.api.routes import router as api_router
 
 # Initialize database schema if missing
 Base.metadata.create_all(bind=engine)
+
+# Auto-seed fresh database if empty
+db = SessionLocal()
+try:
+    if db.query(User).count() == 0:
+        print("🌱 Fresh database detected! Auto-seeding initial users, PHCs, inventory, and drivers...")
+        from app.sim.generate import seed_database
+        seed_database()
+except Exception as e:
+    print(f"⚠️ Auto-seed note: {e}")
+finally:
+    db.close()
 
 app = FastAPI(
     title="Project Resilience — BRICS Health Supply Chain API",

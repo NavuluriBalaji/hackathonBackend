@@ -29,7 +29,23 @@ SQLITE_PATH = os.path.join(BASE_DIR, "resilience.db")
 SQLITE_URL = f"sqlite:///{SQLITE_PATH}"
 
 def initialize_engine():
-    """Attempts to connect to MySQL. If MySQL is unreachable, falls back to SQLite smoothly if enabled."""
+    """Attempts to connect via DATABASE_URL or MySQL. If unreachable, falls back to SQLite smoothly."""
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+        elif db_url.startswith("mysql://") and "mysql+pymysql://" not in db_url:
+            db_url = db_url.replace("mysql://", "mysql+pymysql://", 1)
+        try:
+            print("Connecting to cloud database via DATABASE_URL...")
+            engine = create_engine(db_url, pool_recycle=3600, pool_pre_ping=True)
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print("✅ Successfully connected to Cloud Database via DATABASE_URL!")
+            return engine, "cloud_db"
+        except Exception as e:
+            print(f"⚠️ Cloud DATABASE_URL connection failed ({e}). Proceeding to MySQL/SQLite fallback...")
+
     try:
         # Create MySQL engine without database name first to auto-create database if missing
         admin_url = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}"
