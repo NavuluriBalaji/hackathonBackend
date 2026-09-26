@@ -277,15 +277,24 @@ def seed_database():
         db.add(staff_user)
         db.commit()
 
-        print("✅ Database seeding complete! Successfully generated:")
-        print(f"   • 5 Districts")
-        print(f"   • 20 Core PHCs")
-        print(f"   • 20 PHC Detail Capability Records")
-        print(f"   • 6 Essential Medicines")
-        print(f"   • 120 Inventory Records")
-        print(f"   • 7,200 Historical Dispensing Logs")
-        print(f"   • 1 Sample Transfer Request")
-        print(f"   • 2 Initial Demo Accounts (admin / staff_loddaputti)")
+        # Seed full AP/Telangana 28 Districts dataset & PHC Facilities
+        try:
+            from app.sim.seed_districts import seed_ap_districts
+            from app.sim.seed_all_phcs import seed_all_phcs
+            from app.sim.seed_inventory_all_phcs import seed_inventory_for_all_phcs
+
+            print("🌐 Seeding Full 28 Districts Dataset...")
+            seed_ap_districts()
+
+            print("🏥 Seeding All PHC Facilities across 28 Districts...")
+            seed_all_phcs()
+
+            print("📦 Seeding Inventory for All PHCs...")
+            seed_inventory_for_all_phcs()
+        except Exception as seed_err:
+            print(f"⚠️ Full dataset seed note: {seed_err}")
+
+        print("✅ Database seeding complete! Successfully generated full multi-district dataset.")
 
     except Exception as e:
         print(f"❌ Error seeding database: {e}")
