@@ -34,7 +34,6 @@ app = FastAPI(
 # Enable CORS for Mobile App / Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://.*",
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
