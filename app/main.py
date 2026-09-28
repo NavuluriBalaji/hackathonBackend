@@ -1,12 +1,14 @@
 import os
 import sys
-from fastapi import FastAPI
+import datetime
+from sqlalchemy import text
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure app module can be imported cleanly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import engine, Base, SessionLocal
+from app.core.database import engine, Base, SessionLocal, get_db
 from app.core.schema import User
 from app.api.routes import router as api_router
 
@@ -50,6 +52,24 @@ def read_root():
         "service": "Project Resilience API Server",
         "docs_url": "/docs"
     }
+
+@app.get("/health")
+def health_check():
+    db_status = "ok"
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    return {
+        "status": "healthy" if db_status == "ok" else "degraded",
+        "database": db_status,
+        "service": "Project Resilience API Server",
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

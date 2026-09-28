@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 import hashlib
 import uuid
@@ -14,6 +14,21 @@ from app.federated.server import run_federated_simulation
 from app.sim.osrm_distance import calculate_realtime_route
 
 router = APIRouter(prefix="/api")
+
+@router.get("/health")
+def api_health(db: Session = Depends(get_db)):
+    db_status = "ok"
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    return {
+        "status": "healthy" if db_status == "ok" else "degraded",
+        "database": db_status,
+        "service": "Project Resilience API Server",
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
 
 class SignUpRequest(BaseModel):
     username: str
