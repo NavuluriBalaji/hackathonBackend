@@ -1,6 +1,6 @@
 import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy import or_, text, func
@@ -482,28 +482,45 @@ def get_transfer_directives(
     phc_id: Optional[str] = None, 
     driver_id: Optional[str] = None,
     search: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
-    query = db.query(TransferRequest)
+    limit_val = limit.default if hasattr(limit, "default") else limit
+    try:
+        limit_val = int(limit_val)
+    except Exception:
+        limit_val = 50
+
+    SourcePHC = aliased(PHC, name="source_phc")
+    TargetPHC = aliased(PHC, name="target_phc")
+
+    query = (
+        db.query(
+            TransferRequest,
+            SourcePHC.name.label("source_phc_name"),
+            TargetPHC.name.label("target_phc_name"),
+            Medicine.name.label("medicine_name")
+        )
+        .outerjoin(SourcePHC, TransferRequest.source_phc_id == SourcePHC.id)
+        .outerjoin(TargetPHC, TransferRequest.target_phc_id == TargetPHC.id)
+        .outerjoin(Medicine, TransferRequest.medicine_id == Medicine.id)
+    )
+
     if status:
         query = query.filter(TransferRequest.status == status)
     if phc_id:
         query = query.filter(or_(TransferRequest.source_phc_id == phc_id, TransferRequest.target_phc_id == phc_id))
     if driver_id:
         query = query.filter(TransferRequest.driver_id == driver_id)
-    
-    transfers = query.all()
+
+    rows = query.order_by(TransferRequest.created_at.desc()).limit(limit_val).all()
     results = []
     s_query = search.lower() if search else None
 
-    for t in transfers:
-        src = db.query(PHC).filter(PHC.id == t.source_phc_id).first()
-        tgt = db.query(PHC).filter(PHC.id == t.target_phc_id).first()
-        med = db.query(Medicine).filter(Medicine.id == t.medicine_id).first()
-
-        src_name = src.name if src else ""
-        tgt_name = tgt.name if tgt else ""
-        med_name = med.name if med else ""
+    for t, src_name, tgt_name, med_name in rows:
+        src_name = src_name or ""
+        tgt_name = tgt_name or ""
+        med_name = med_name or ""
 
         if s_query:
             t_id = t.id.lower()

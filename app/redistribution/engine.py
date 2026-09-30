@@ -37,6 +37,7 @@ def run_redistribution_optimizer(db: Session, max_transport_radius_km: float = 4
     Generates cold-chain Transfer Directives for District Officer approval.
     """
     print("⚙️ Running Operations Research Stock Redistribution Optimizer...")
+    phc_map = {p.id: p for p in db.query(PHC).all()}
     medicines = db.query(Medicine).all()
     created_directives = []
 
@@ -49,7 +50,7 @@ def run_redistribution_optimizer(db: Session, max_transport_radius_km: float = 4
 
         inventories = db.query(Inventory).filter(Inventory.medicine_id == med_id).all()
         for inv in inventories:
-            phc = db.query(PHC).filter(PHC.id == inv.phc_id).first()
+            phc = phc_map.get(inv.phc_id)
             if not phc:
                 continue
 
