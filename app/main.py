@@ -12,26 +12,20 @@ from app.core.database import engine, Base, SessionLocal, get_db
 from app.core.schema import User
 from app.api.routes import router as api_router
 
-# Initialize database schema if missing
-Base.metadata.create_all(bind=engine)
-
-# Auto-seed fresh database if empty
-db = SessionLocal()
-try:
-    if db.query(User).count() == 0:
-        print("🌱 Fresh database detected! Auto-seeding initial users, PHCs, inventory, and drivers...")
-        from app.sim.generate import seed_database
-        seed_database()
-except Exception as e:
-    print(f"⚠️ Auto-seed note: {e}")
-finally:
-    db.close()
-
 app = FastAPI(
     title="Project Resilience — BRICS Health Supply Chain API",
     description="Sovereign Federated Learning & Inventory Optimization System for PHCs",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+def on_startup():
+    try:
+        print("🔗 Verifying / Initializing Database Schema...")
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database schema ready!")
+    except Exception as e:
+        print(f"⚠️ DB Startup initialization note: {e}")
 
 # Enable CORS for Mobile App / Frontend
 app.add_middleware(
@@ -40,6 +34,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
 # Register API Router

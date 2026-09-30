@@ -29,44 +29,34 @@ SQLITE_PATH = os.path.join(BASE_DIR, "resilience.db")
 SQLITE_URL = f"sqlite:///{SQLITE_PATH}"
 
 def initialize_engine():
-    """Attempts to connect via DATABASE_URL or MySQL. If unreachable, falls back to SQLite smoothly."""
+    """Attempts to connect via DATABASE_URL or MySQL/SQLite cleanly without blocking server import."""
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
         elif db_url.startswith("mysql://") and "mysql+pymysql://" not in db_url:
             db_url = db_url.replace("mysql://", "mysql+pymysql://", 1)
+        print("✅ Configured Cloud Database via DATABASE_URL with Connection Pooling")
+        engine = create_engine(
+            db_url,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=1800,
+            pool_pre_ping=False
+        )
+        return engine, "cloud_db"
+
+    # If no DATABASE_URL, check if local MySQL is explicitly requested or fallback to SQLite
+    if os.getenv("MYSQL_HOST") and os.getenv("MYSQL_HOST") != "localhost":
         try:
-            print("Connecting to cloud database via DATABASE_URL...")
-            engine = create_engine(db_url, pool_recycle=3600, pool_pre_ping=True)
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            print("✅ Successfully connected to Cloud Database via DATABASE_URL!")
-            return engine, "cloud_db"
+            engine = create_engine(MYSQL_URL, pool_recycle=3600, pool_pre_ping=True)
+            return engine, "mysql"
         except Exception as e:
-            print(f"⚠️ Cloud DATABASE_URL connection failed ({e}). Proceeding to MySQL/SQLite fallback...")
+            print(f"⚠️ MySQL Connection failed ({e}). Falling back to SQLite...")
 
-    try:
-        # Create MySQL engine without database name first to auto-create database if missing
-        admin_url = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}"
-        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-        with admin_engine.connect() as conn:
-            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {MYSQL_DB} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
-        admin_engine.dispose()
-
-        # Connect to target MySQL database
-        engine = create_engine(MYSQL_URL, pool_recycle=3600, pool_pre_ping=True)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        print(f"✅ Successfully connected to MySQL Database: [{MYSQL_DB}@{MYSQL_HOST}:{MYSQL_PORT}]")
-        return engine, "mysql"
-    except Exception as e:
-        if ENABLE_SQLITE_FALLBACK:
-            print(f"⚠️ MySQL Connection failed ({e}). Falling back to local SQLite database...")
-            engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
-            return engine, "sqlite"
-        else:
-            raise e
+    print("ℹ️ Using local SQLite database engine...")
+    engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+    return engine, "sqlite"
 
 engine, DB_TYPE = initialize_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
