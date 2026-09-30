@@ -36,7 +36,13 @@ def initialize_engine():
             db_url = db_url.replace("postgres://", "postgresql://", 1)
         elif db_url.startswith("mysql://") and "mysql+pymysql://" not in db_url:
             db_url = db_url.replace("mysql://", "mysql+pymysql://", 1)
-        print("✅ Configured Cloud Database via DATABASE_URL with Connection Pooling")
+        
+        # Auto-fix Render Internal Hostname (e.g. dpg-xxx-a) to External Hostname (.oregon-postgres.render.com)
+        if "@dpg-" in db_url and ".render.com" not in db_url:
+            import re
+            db_url = re.sub(r'(@dpg-[^:/]+)', r'\1.oregon-postgres.render.com', db_url)
+
+        print(f"✅ Configured Cloud Database via DATABASE_URL with Connection Pooling")
         engine = create_engine(
             db_url,
             pool_size=10,
