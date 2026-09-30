@@ -148,6 +148,31 @@ def signup(req: SignUpRequest, db: Session = Depends(get_db)):
     )
 
     db.add(new_user)
+
+    # Auto-register driver record in fleet table if signing up as driver
+    if norm_role == "driver":
+        existing_driver = db.query(Driver).filter(Driver.id == user_id).first()
+        if not existing_driver:
+            driver_dist = "DIS-01"
+            if phc and phc.district_id:
+                driver_dist = phc.district_id
+
+            import random
+            rand_code = random.randint(1000, 9999)
+            new_driver = Driver(
+                id=user_id,
+                name=req.full_name or req.username,
+                phone="+91 98480 " + str(rand_code),
+                vehicle_type="Cold-Chain Van",
+                vehicle_number=f"TS-03-D-{rand_code}",
+                district_id=driver_dist,
+                status="available",
+                current_lat=17.052,
+                current_lon=79.268,
+                created_at=datetime.datetime.utcnow()
+            )
+            db.add(new_driver)
+
     db.commit()
 
     return {
@@ -719,6 +744,39 @@ def get_district_summary(district_id: Optional[str] = None, db: Session = Depend
 @router.get("/drivers")
 def get_drivers(district_id: Optional[str] = None, db: Session = Depends(get_db)):
     """Returns list of cold-chain drivers and transport fleet status."""
+    # Sync any registered drivers from User table who aren't yet in Driver table
+    driver_users = db.query(User).filter(User.role == "driver").all()
+    existing_driver_ids = {d.id for d in db.query(Driver.id).all()}
+    
+    synced_new = False
+    for u in driver_users:
+        if u.id not in existing_driver_ids:
+            import random
+            rand_code = random.randint(1000, 9999)
+            dist_id = "DIS-01"
+            if u.phc_id:
+                phc_obj = db.query(PHC).filter(PHC.id == u.phc_id).first()
+                if phc_obj and phc_obj.district_id:
+                    dist_id = phc_obj.district_id
+
+            new_d = Driver(
+                id=u.id,
+                name=u.full_name or u.username,
+                phone="+91 98480 " + str(rand_code),
+                vehicle_type="Cold-Chain Van",
+                vehicle_number=f"TS-03-D-{rand_code}",
+                district_id=dist_id,
+                status="available",
+                current_lat=17.052,
+                current_lon=79.268,
+                created_at=datetime.datetime.utcnow()
+            )
+            db.add(new_d)
+            synced_new = True
+
+    if synced_new:
+        db.commit()
+
     query = db.query(Driver)
     if district_id:
         query = query.filter(Driver.district_id == district_id)
